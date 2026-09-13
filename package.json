@@ -1,0 +1,27 @@
+{
+  "name": "eas-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EAS (Earn And Save) — recycling rewards app for Ifako-Ijaye LGA, Lagos. pnpm monorepo: Expo mobile app, Express + Prisma API, shared types & config.",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "mobile": "pnpm --filter @eas/mobile start",
+    "api": "pnpm --filter @eas/api dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @eas/api db:generate",
+    "db:migrate": "pnpm --filter @eas/api db:migrate",
+    "db:studio": "pnpm --filter @eas/api db:studio"
+  },
+  "devDependencies": {
+    "prisma": "6.19.3",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3"
+  }
+}

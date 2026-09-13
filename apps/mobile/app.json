@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "EAS",
+    "slug": "eas",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "eas",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0B7A3B"
+    },
+    "ios": {
+      "bundleIdentifier": "app.eas.ifakoijaye",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "app.eas.ifakoijaye",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B7A3B"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "extra": {
+      "apiBaseUrl": "http://10.0.2.2:4000",
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}

@@ -1,0 +1,354 @@
+// ============================================================================
+// EAS — Earn And Save | Recycling Rewards App (Ifako-Ijaye LGA pilot)
+// Initial schema per PRD §8.1 (Table 8.1) + §8.2 sample.
+//
+// Conventions:
+//  - Money is stored as integers in KOBO (NGN * 100), matching the PRD §8.2
+//    sample ("grossPayout Int // in kobo") and §8.4 responses (*Kobo fields).
+//    Never use floats for money.
+//  - Model fields are camelCase; tables/columns are snake_case in Postgres
+//    via @map/@@map, matching §8.1 (user_id, created_at, bank_account_ref...).
+//  - Keep packages/types/src/index.ts in sync with these enums/entities.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+/// Spotter (resident), Collector (PSP / recycler / scrap dealer), Admin.
+enum Role {
+  SPOTTER
+  COLLECTOR
+  ADMIN
+
+  @@map("role")
+}
+
+/// §4.2: collection points are color-coded by partner type.
+enum PartnerType {
+  LAWMA_HUB
+  PRIVATE_RECYCLER
+  SCRAP_DEALER
+  CDA_DRIVE
+
+  @@map("partner_type")
+}
+
+/// §8.1 wallet_transactions.type (credit/debit).
+enum WalletTxType {
+  CREDIT
+  DEBIT
+
+  @@map("wallet_tx_type")
+}
+
+/// Cashout lifecycle (§5.4 — Paystack Transfer API).
+enum CashoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+
+  @@map("cashout_status")
+}
+
+/// Pickup request lifecycle (§4.5 — first collector to accept locks the job).
+enum PickupStatus {
+  PENDING
+  ACCEPTED
+  EN_ROUTE
+  COLLECTED
+  CANCELLED
+  EXPIRED
+
+  @@map("pickup_status")
+}
+
+/// §4.5 preferred time window.
+enum PickupWindow {
+  MORNING
+  AFTERNOON
+  EVENING
+
+  @@map("pickup_window")
+}
+
+/// §4.3 estimated pile size.
+enum TrashSize {
+  SMALL
+  MEDIUM
+  LARGE
+
+  @@map("trash_size")
+}
+
+/// Trash report lifecycle (§4.3).
+enum TrashReportStatus {
+  OPEN
+  DISPATCHED
+  CLEARED
+  REJECTED
+
+  @@map("trash_report_status")
+}
+
+// ----------------------------------------------------------------------------
+// Users, CDAs, wallets & ledger
+// ----------------------------------------------------------------------------
+
+/// §8.1 users — spotter/collector accounts (phone-first auth, §4.1).
+model User {
+  id              String    @id @default(cuid())
+  phone           String    @unique
+  fullName        String?
+  role            Role      @default(SPOTTER)
+  /// Manual LGA/ward fallback when GPS is unreliable (§4.2 edge case).
+  ward            String?
+  /// CDA that recruited this spotter (drives §6.2 referral commissions).
+  cdaId           String?   @map("cda_id")
+  cda             Cda?      @relation(fields: [cdaId], references: [id])
+  bvnVerified     Boolean   @default(false) @map("bvn_verified")
+  /// Encrypted bank account / Paystack recipient reference (§8.1).
+  bankAccountRef  String?   @map("bank_account_ref")
+  wallet          Wallet?
+  dropoffs        Dropoff[]
+  cashouts        Cashout[]
+  pickupsCreated  PickupRequest[] @relation("PickupRequester")
+  pickupsAccepted PickupRequest[] @relation("PickupAcceptor")
+  trashReports    TrashReport[]
+  refreshTokens   RefreshToken[]
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([role])
+  @@map("users")
+}
+
+/// §8.1 cdas — Community Development Associations (§6.2 mobilization).
+model Cda {
+  id                    String   @id @default(cuid())
+  name                  String   @unique
+  ward                  String
+  contactPhone          String?  @map("contact_phone")
+  /// Accrued referral commission in kobo (§6.2: NGN 50/active spotter/month).
+  commissionBalanceKobo Int      @default(0) @map("commission_balance_kobo")
+  members               User[]
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("cdas")
+}
+
+/// §8.1 wallets — per-user balance (1:1 with User).
+model Wallet {
+  id           String   @id @default(cuid())
+  userId       String   @unique @map("user_id")
+  user         User     @relation(fields: [userId], references: [id])
+  /// Balance in kobo (e.g. 95240 = NGN 952.40, §8.4).
+  balanceKobo  Int      @default(0) @map("balance_kobo")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+/// §8.1 wallet_transactions — append-only wallet ledger.
+model WalletTransaction {
+  id         String       @id @default(cuid())
+  walletId   String       @map("wallet_id")
+  wallet     Wallet       @relation(fields: [walletId], references: [id])
+  type       WalletTxType
+  amountKobo Int          @map("amount_kobo")
+  /// e.g. DROP_OFF | CASH_OUT | PICKUP | TRASH_BOUNTY | CDA_COMMISSION
+  refType    String?      @map("ref_type")
+  refId      String?      @map("ref_id")
+  createdAt  DateTime     @default(now()) @map("created_at")
+
+  @@index([walletId, createdAt])
+  @@map("wallet_transactions")
+}
+
+// ----------------------------------------------------------------------------
+// Auth plumbing (PRD §4.1 — phone + OTP, JWT + refresh)
+// ----------------------------------------------------------------------------
+
+/// §4.1 OTP codes — hashed at rest, 5-minute TTL, max 5 verify attempts.
+model OtpCode {
+  id         String   @id @default(cuid())
+  phone      String
+  /// bcrypt hash of the 6-digit code (never store the raw code).
+  codeHash   String   @map("code_hash")
+  /// Number of failed verify attempts against this code (§4.1 anti-brute-force).
+  attempts   Int      @default(0)
+  consumed   Boolean  @default(false)
+  /// Channel used for delivery: SMS or WhatsApp fallback via Termii.
+  channel    String   @default("sms")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([phone, createdAt])
+  @@map("otp_codes")
+}
+
+/// §4.1 refresh tokens — bcrypt-hashed at rest, 7-day TTL, rotated on use.
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// bcrypt hash of the refresh token (never store the raw token).
+  tokenHash  String    @map("token_hash")
+  revoked    Boolean   @default(false)
+  replacedBy String?   @map("replaced_by")
+  expiresAt  DateTime  @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ----------------------------------------------------------------------------
+// Materials & collection points
+// ----------------------------------------------------------------------------
+
+/// §8.1 materials — material type catalog with live payout rates (§5.1).
+model Material {
+  id               String   @id @default(cuid())
+  /// e.g. "PET bottles (clear, baled)".
+  name             String   @unique
+  /// "kg", or "item" for e-waste (negotiated per item).
+  unit             String   @default("kg")
+  /// Current gross rate in kobo/kg (e.g. PET 120 NGN/kg = 12000).
+  currentRateKobo  Int      @map("current_rate_kobo")
+  /// 8% for most materials, 10% for e-waste (§5.1).
+  feePercent       Int      @default(8) @map("fee_percent")
+  isActive         Boolean  @default(true) @map("is_active")
+  lastUpdated      DateTime @updatedAt @map("last_updated")
+  dropoffs         Dropoff[]
+  pickupRequests   PickupRequest[]
+  /// Accepted-materials matrix for collection points (§8.1, m2m).
+  collectionPoints CollectionPoint[]
+
+  @@map("materials")
+}
+
+/// §8.1 collection_points — verified drop-off locations (§4.2).
+model CollectionPoint {
+  id                String      @id @default(cuid())
+  name              String
+  lat               Decimal     @db.Decimal(9, 6)
+  lng               Decimal     @db.Decimal(9, 6)
+  partnerType       PartnerType @default(PRIVATE_RECYCLER) @map("partner_type")
+  /// e.g. "Mon-Sat 08:00-18:00".
+  openingHours      String?     @map("opening_hours")
+  /// Collector-side toggle with auto-notification to spotters (§4.2).
+  isActive          Boolean     @default(true) @map("is_active")
+  acceptedMaterials Material[]
+  dropoffs          Dropoff[]
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  @@index([lat, lng])
+  @@map("collection_points")
+}
+
+/// §8.1 dropoffs — drop-off transactions (§4.2/§8.4).
+model Dropoff {
+  id              String          @id @default(cuid())
+  userId          String          @map("user_id")
+  user            User            @relation(fields: [userId], references: [id])
+  pointId         String          @map("point_id")
+  point           CollectionPoint @relation(fields: [pointId], references: [id])
+  materialId      String          @map("material_id")
+  material        Material        @relation(fields: [materialId], references: [id])
+  weightKg        Decimal         @db.Decimal(8, 3)
+  grossPayoutKobo Int             @map("gross_payout_kobo")
+  feePercent      Int             @map("fee_percent")
+  netPayoutKobo   Int             @map("net_payout_kobo")
+  photoUrl        String?         @map("photo_url")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([pointId, createdAt])
+  @@map("dropoffs")
+}
+
+/// §8.1 cashouts — Paystack transfer requests (§5.4).
+model Cashout {
+  id            String        @id @default(cuid())
+  userId        String        @map("user_id")
+  user          User          @relation(fields: [userId], references: [id])
+  amountKobo    Int           @map("amount_kobo")
+  /// Encrypted bank account / Paystack recipient reference.
+  bankAccount   String        @map("bank_account")
+  status        CashoutStatus @default(PENDING)
+  paystackRef   String?       @unique @map("paystack_ref")
+  failureReason String?       @map("failure_reason")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt])
+  @@map("cashouts")
+}
+
+/// §8.1 pickup_requests — scheduled home/business pickups (§4.5).
+model PickupRequest {
+  id             String       @id @default(cuid())
+  userId         String       @map("user_id")
+  user           User         @relation("PickupRequester", fields: [userId], references: [id])
+  address        String
+  lat            Decimal      @db.Decimal(9, 6)
+  lng            Decimal      @db.Decimal(9, 6)
+  materialId     String?      @map("material_id")
+  material       Material?    @relation(fields: [materialId], references: [id])
+  estVolumeKg    Decimal?     @db.Decimal(8, 3) @map("est_volume_kg")
+  window         PickupWindow
+  status         PickupStatus @default(PENDING)
+  /// Collector who locked the job (first-accept-wins, §4.5).
+  acceptedById   String?      @map("accepted_by")
+  acceptedBy     User?        @relation("PickupAcceptor", fields: [acceptedById], references: [id])
+  actualWeightKg Decimal?     @db.Decimal(8, 3) @map("actual_weight_kg")
+  /// Photo evidence at pickup — dispute resolution (§4.5 edge case).
+  photoUrl       String?      @map("photo_url")
+  collectedAt    DateTime?    @map("collected_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@map("pickup_requests")
+}
+
+/// §8.1 trash_reports — illegal dumpsite reports (§4.3).
+model TrashReport {
+  id             String            @id @default(cuid())
+  userId         String            @map("user_id")
+  user           User              @relation(fields: [userId], references: [id])
+  /// In-app camera only — no gallery upload (§4.3, fraud control).
+  photoUrl       String            @map("photo_url")
+  lat            Decimal           @db.Decimal(9, 6)
+  lng            Decimal           @db.Decimal(9, 6)
+  /// GPS accuracy indicator in metres (§4.3).
+  gpsAccuracyM   Float?            @map("gps_accuracy_m")
+  size           TrashSize
+  description    String?
+  status         TrashReportStatus @default(OPEN)
+  /// NGN 100 bounty paid when a completed pickup results (§4.3).
+  bountyPaidKobo Int               @default(0) @map("bounty_paid_kobo")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  @@index([lat, lng])
+  @@index([userId, createdAt])
+  @@map("trash_reports")
+}
+
+

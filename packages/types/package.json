@@ -1,0 +1,23 @@
+{
+  "name": "@eas/types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared TypeScript domain + API-contract types for EAS (mirrors prisma/schema.prisma).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eas/config": "workspace:*",
+    "typescript": "^5.6.3"
+  }
+}
