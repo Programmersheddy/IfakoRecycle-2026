@@ -3,7 +3,14 @@
  *
  * Mirrors prisma/schema.prisma (PRD §8.1) — keep both in sync.
  * Money: every amount is an integer in KOBO (NGN × 100), per PRD §8.2/§8.4.
+ * Naira (NGN) is the sole currency — display/conversion lives in ./money.
  */
+
+// ---------------------------------------------------------------------------
+// Money — single source of truth for Naira display & kobo ⇄ naira conversion
+// ---------------------------------------------------------------------------
+
+export * from "./money.js";
 
 // ---------------------------------------------------------------------------
 // Enums (string-literal unions mirroring the Prisma enums)
@@ -14,8 +21,11 @@ export type Role = "SPOTTER" | "COLLECTOR" | "ADMIN";
 export type PartnerType =
   | "LAWMA_HUB"
   | "PRIVATE_RECYCLER"
-  | "SCRAP_DEALER"
-  | "CDA_DRIVE";
+  | "CDA_HUB"
+  | "SCRAP_DEALER";
+
+/** Material classification (§8.1 materials.category). */
+export type MaterialCategory = "PLASTIC" | "METAL" | "PAPER" | "E_WASTE" | "GLASS" | "ORGANIC";
 
 export type WalletTxType = "CREDIT" | "DEBIT";
 
@@ -47,6 +57,16 @@ export type TrashReportStatus = "OPEN" | "DISPATCHED" | "CLEARED" | "REJECTED";
 /** All monetary amounts, in kobo (NGN × 100). */
 export type Kobo = number;
 
+/** Format kobo as a naira string — "₦1,234.50" / "₦1,234" for whole amounts. */
+export function formatNaira(kobo: Kobo): string {
+  const naira = kobo / 100;
+  const hasCents = Math.round(kobo) % 100 !== 0;
+  return `₦${naira.toLocaleString("en-NG", {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2
+  })}`;
+}
+
 // ---------------------------------------------------------------------------
 // Domain entities (PRD §8.1, Table 8.1)
 // ---------------------------------------------------------------------------
@@ -55,7 +75,8 @@ export interface User {
   id: string;
   /** Nigerian MSISDN, e.g. "+2348031234567" (§4.1). */
   phone: string;
-  fullName?: string;
+  /** App display name (§8.1 users.display_name). */
+  displayName?: string;
   role: Role;
   /** Manual LGA/ward fallback when GPS is unreliable (§4.2 edge case). */
   ward?: string;
@@ -97,24 +118,32 @@ export interface WalletTransaction {
 
 export interface Material {
   id: string;
-  /** e.g. "PET bottles (clear, baled)" (§5.1). */
+  /** Unique code, e.g. "PET_CLEAR" (§8.1 materials.code). */
+  code: string;
+  /** e.g. "PET bottles (clear, baled)". */
   name: string;
-  /** "kg", or "item" for negotiated e-waste. */
-  unit: "kg" | "item";
-  currentRateKobo: Kobo;
+  category: MaterialCategory;
+  /** Gross payout rate in kobo/kg before the platform fee (§5.1). */
+  grossRateKoboPerKg: Kobo;
+  /** Net payout rate in kobo/kg after the platform fee. */
+  netRateKoboPerKg: Kobo;
   /** 8 for most materials, 10 for e-waste (§5.1). */
   feePercent: number;
-  isActive: boolean;
+  description?: string;
+  acceptedByDefault: boolean;
   lastUpdated: string;
 }
 
 export interface CollectionPoint {
   id: string;
   name: string;
+  /** Physical address for spotter navigation. */
+  address?: string;
   lat: number;
   lng: number;
   partnerType: PartnerType;
   openingHours?: string;
+  contactPhone?: string;
   isActive: boolean;
   acceptedMaterials: Material[];
   createdAt: string;
@@ -252,19 +281,32 @@ export interface CreateDropoffResponse {
 /** GET /v1/wallet — balance + last 90 days of ledger entries (§4.4). */
 export interface WalletSummary {
   balanceKobo: Kobo;
+  /** One-time BVN verification done? (§5.4 — required before first cashout.) */
+  bvnVerified: boolean;
+  /** A Paystack transfer recipient is saved for this user (§8.1 bank_account_ref). */
+  hasSavedAccount: boolean;
   transactions: WalletTransaction[];
 }
 
 /** POST /v1/wallet/cashout (min NGN 1,000; daily cap NGN 50,000). */
 export interface CreateCashoutDto {
   amountKobo: Kobo;
-  bankAccount: string;
+  /** Paystack bank code (e.g. "058" = GTBank) — required for the first
+   *  cashout, which also saves the account as a transfer recipient. */
+  bankCode?: string;
+  /** 10-digit NUBAN account number. */
+  accountNumber?: string;
+  /** 11-digit BVN — required only when the user is not yet BVN-verified. */
+  bvn?: string;
 }
 
 export interface CreateCashoutResponse {
   id: string;
   status: CashoutStatus;
   paystackRef?: string;
+  /** Wallet balance after the debit (or after the automatic refund on failure). */
+  walletBalanceKobo: Kobo;
+  failureReason?: string;
 }
 
 /** POST /v1/pickup-requests (§4.5). */

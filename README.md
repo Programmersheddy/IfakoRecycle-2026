@@ -80,7 +80,7 @@ pnpm mobile                        # Expo dev server
 
 ## Conventions
 
-- **Money is kobo.** All monetary values are integers in kobo (`NGN × 100`) — e.g. `netPayoutKobo: 38640` = ₦386.40 (PRD §8.2/§8.4). Never floats.
+- **Money is kobo — NGN is the sole currency.** All monetary values are integers in kobo (`NGN × 100`) — e.g. `netPayoutKobo: 38640` = ₦386.40 (PRD §8.2/§8.4). Never floats. Every Prisma monetary field is suffixed `Kobo`, typed `Int`, and documented `/// Amount in kobo (1 NGN = 100 kobo)`. Display/conversion goes through the `@eas/types` money helpers (`formatNaira`, `parseNairaToKobo`, …) — never hardcode ₦ or call `toLocaleString()` on money.
 - **DB naming:** Prisma models use `camelCase`; tables/columns are `snake_case` in Postgres via `@map`/`@@map`, matching PRD §8.1 (`user_id`, `created_at`, …).
 - **`@eas/types` and `prisma/schema.prisma` must stay in sync** — the shared types mirror the schema enums/entities.
 - API routes are versioned under `/v1/...` (PRD §8.3).

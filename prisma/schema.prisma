@@ -3,9 +3,10 @@
 // Initial schema per PRD §8.1 (Table 8.1) + §8.2 sample.
 //
 // Conventions:
-//  - Money is stored as integers in KOBO (NGN * 100), matching the PRD §8.2
-//    sample ("grossPayout Int // in kobo") and §8.4 responses (*Kobo fields).
-//    Never use floats for money.
+//  - Money is stored as integers in KOBO (NGN * 100) — NGN is the app's sole
+//    currency. Every monetary field: `Kobo` suffix, type `Int`, and a
+//    `/// Amount in kobo (1 NGN = 100 kobo)` doc comment. Never floats.
+//    Naira formatting/conversion lives in packages/types/src/money.ts.
 //  - Model fields are camelCase; tables/columns are snake_case in Postgres
 //    via @map/@@map, matching §8.1 (user_id, created_at, bank_account_ref...).
 //  - Keep packages/types/src/index.ts in sync with these enums/entities.
@@ -33,12 +34,24 @@ enum Role {
   @@map("role")
 }
 
+/// Material category for classification.
+enum MaterialCategory {
+  PLASTIC
+  METAL
+  PAPER
+  E_WASTE
+  GLASS
+  ORGANIC
+
+  @@map("material_category")
+}
+
 /// §4.2: collection points are color-coded by partner type.
 enum PartnerType {
   LAWMA_HUB
   PRIVATE_RECYCLER
+  CDA_HUB
   SCRAP_DEALER
-  CDA_DRIVE
 
   @@map("partner_type")
 }
@@ -109,7 +122,7 @@ enum TrashReportStatus {
 model User {
   id              String    @id @default(cuid())
   phone           String    @unique
-  fullName        String?
+  displayName     String?   @map("display_name")
   role            Role      @default(SPOTTER)
   /// Manual LGA/ward fallback when GPS is unreliable (§4.2 edge case).
   ward            String?
@@ -139,7 +152,8 @@ model Cda {
   name                  String   @unique
   ward                  String
   contactPhone          String?  @map("contact_phone")
-  /// Accrued referral commission in kobo (§6.2: NGN 50/active spotter/month).
+  /// Amount in kobo (1 NGN = 100 kobo) — accrued referral commission
+  /// (§6.2: NGN 50 per active spotter per month).
   commissionBalanceKobo Int      @default(0) @map("commission_balance_kobo")
   members               User[]
   createdAt             DateTime @default(now()) @map("created_at")
@@ -153,7 +167,7 @@ model Wallet {
   id           String   @id @default(cuid())
   userId       String   @unique @map("user_id")
   user         User     @relation(fields: [userId], references: [id])
-  /// Balance in kobo (e.g. 95240 = NGN 952.40, §8.4).
+  /// Amount in kobo (1 NGN = 100 kobo) — e.g. 95240 = ₦952.40 (§8.4).
   balanceKobo  Int      @default(0) @map("balance_kobo")
   updatedAt    DateTime @updatedAt @map("updated_at")
   transactions WalletTransaction[]
@@ -167,6 +181,7 @@ model WalletTransaction {
   walletId   String       @map("wallet_id")
   wallet     Wallet       @relation(fields: [walletId], references: [id])
   type       WalletTxType
+  /// Amount in kobo (1 NGN = 100 kobo).
   amountKobo Int          @map("amount_kobo")
   /// e.g. DROP_OFF | CASH_OUT | PICKUP | TRASH_BOUNTY | CDA_COMMISSION
   refType    String?      @map("ref_type")
@@ -221,21 +236,29 @@ model RefreshToken {
 
 /// §8.1 materials — material type catalog with live payout rates (§5.1).
 model Material {
-  id               String   @id @default(cuid())
+  id                    String             @id @default(cuid())
+  /// Unique material code (e.g. "PET_CLEAR").
+  code                  String             @unique
   /// e.g. "PET bottles (clear, baled)".
-  name             String   @unique
-  /// "kg", or "item" for e-waste (negotiated per item).
-  unit             String   @default("kg")
-  /// Current gross rate in kobo/kg (e.g. PET 120 NGN/kg = 12000).
-  currentRateKobo  Int      @map("current_rate_kobo")
-  /// 8% for most materials, 10% for e-waste (§5.1).
-  feePercent       Int      @default(8) @map("fee_percent")
-  isActive         Boolean  @default(true) @map("is_active")
-  lastUpdated      DateTime @updatedAt @map("last_updated")
-  dropoffs         Dropoff[]
-  pickupRequests   PickupRequest[]
+  name                  String
+  /// Material category for filtering and analytics.
+  category              MaterialCategory
+  /// Amount in kobo (1 NGN = 100 kobo) — gross payout rate per kg before fees.
+  grossRateKoboPerKg    Int                @map("gross_rate_kobo_per_kg")
+  /// Platform fee percentage (8% for most, 10% for e-waste).
+  feePercent            Int                @default(8) @map("fee_percent")
+  /// Amount in kobo (1 NGN = 100 kobo) — net payout rate per kg after fees.
+  netRateKoboPerKg      Int                @map("net_rate_kobo_per_kg")
+  /// Material description and handling notes.
+  description           String?
+  /// Whether this material is accepted by default at new collection points.
+  acceptedByDefault     Boolean            @default(true) @map("accepted_by_default")
+  /// Timestamp of last rate update (quarterly review).
+  lastUpdated           DateTime           @default(now()) @updatedAt @map("last_updated")
+  dropoffs              Dropoff[]
+  pickupRequests        PickupRequest[]
   /// Accepted-materials matrix for collection points (§8.1, m2m).
-  collectionPoints CollectionPoint[]
+  collectionPoints      CollectionPoint[]
 
   @@map("materials")
 }
@@ -244,11 +267,15 @@ model Material {
 model CollectionPoint {
   id                String      @id @default(cuid())
   name              String
+  /// Physical address for spotter navigation.
+  address           String?
   lat               Decimal     @db.Decimal(9, 6)
   lng               Decimal     @db.Decimal(9, 6)
   partnerType       PartnerType @default(PRIVATE_RECYCLER) @map("partner_type")
   /// e.g. "Mon-Sat 08:00-18:00".
   openingHours      String?     @map("opening_hours")
+  /// Contact phone number for collection point manager.
+  contactPhone      String?     @map("contact_phone")
   /// Collector-side toggle with auto-notification to spotters (§4.2).
   isActive          Boolean     @default(true) @map("is_active")
   acceptedMaterials Material[]
@@ -270,8 +297,10 @@ model Dropoff {
   materialId      String          @map("material_id")
   material        Material        @relation(fields: [materialId], references: [id])
   weightKg        Decimal         @db.Decimal(8, 3)
+  /// Amount in kobo (1 NGN = 100 kobo) — gross, before the platform fee (§5.1).
   grossPayoutKobo Int             @map("gross_payout_kobo")
   feePercent      Int             @map("fee_percent")
+  /// Amount in kobo (1 NGN = 100 kobo) — net, after the platform fee.
   netPayoutKobo   Int             @map("net_payout_kobo")
   photoUrl        String?         @map("photo_url")
   createdAt       DateTime        @default(now()) @map("created_at")
@@ -286,6 +315,7 @@ model Cashout {
   id            String        @id @default(cuid())
   userId        String        @map("user_id")
   user          User          @relation(fields: [userId], references: [id])
+  /// Amount in kobo (1 NGN = 100 kobo) — the transfer value sent to Paystack.
   amountKobo    Int           @map("amount_kobo")
   /// Encrypted bank account / Paystack recipient reference.
   bankAccount   String        @map("bank_account")
@@ -341,7 +371,8 @@ model TrashReport {
   size           TrashSize
   description    String?
   status         TrashReportStatus @default(OPEN)
-  /// NGN 100 bounty paid when a completed pickup results (§4.3).
+  /// Amount in kobo (1 NGN = 100 kobo) — NGN 100 bounty paid when a
+  /// completed pickup results (§4.3).
   bountyPaidKobo Int               @default(0) @map("bounty_paid_kobo")
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
@@ -350,5 +381,3 @@ model TrashReport {
   @@index([userId, createdAt])
   @@map("trash_reports")
 }
-
-

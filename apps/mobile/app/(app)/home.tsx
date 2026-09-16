@@ -8,11 +8,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { CURRENCY_SYMBOL, formatNaira } from "@eas/types";
 import { clearSession, getStoredPhone } from "../../src/services/auth";
+import { getWallet } from "../../src/services/wallet";
 import { Colors, Radii, Spacing, Typography } from "../../src/constants/theme";
 
-/** Mock wallet data — replace with real API calls */
-const MOCK_BALANCE = 2450;
+/** Mock stats — replace with real API calls (wallet balance is live). */
 const MOCK_POINTS = 183;
 const MOCK_PICKUPS = 7;
 
@@ -40,9 +41,13 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [phone, setPhone] = useState<string | null>(null);
+  const [balanceKobo, setBalanceKobo] = useState<number | null>(null);
 
   useEffect(() => {
     getStoredPhone().then(setPhone);
+    getWallet()
+      .then((w) => setBalanceKobo(w.balanceKobo))
+      .catch(() => setBalanceKobo(null)); // home stays usable offline
   }, []);
 
   const handleSignOut = async () => {
@@ -97,7 +102,7 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.walletLabel}>Wallet Balance</Text>
             <Text style={styles.walletAmount}>
-              ₦{MOCK_BALANCE.toLocaleString()}
+              {balanceKobo === null ? `${CURRENCY_SYMBOL}—` : formatNaira(balanceKobo)}
             </Text>
           </View>
           <View style={styles.walletIcon}>
@@ -110,6 +115,7 @@ export default function HomeScreen() {
         <TouchableOpacity
           style={styles.cashoutBtn}
           activeOpacity={0.85}
+          onPress={() => router.push("/(app)/wallet")}
           accessibilityRole="button"
           accessibilityLabel="Cash out"
         >

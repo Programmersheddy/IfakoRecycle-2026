@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response } from "express";
 import { errorHandler } from "./lib/http";
 import { authRouter } from "./modules/auth/auth.routes";
+import { walletRouter } from "./modules/wallet/wallet.routes";
 
 /**
  * EAS Express app factory (PRD §8.3 — routes are versioned under /v1).
@@ -16,6 +17,12 @@ app.use(express.json({ limit: "1mb" }));
 //   POST /v1/auth/otp/verify  — verify OTP, return JWT + refresh
 //   POST /v1/auth/refresh     — exchange refresh token for a new JWT pair
 app.use("/v1/auth", authRouter);
+
+// Wallet routes (PRD §4.4, §5.4, §8.3 — Step 5, the money layer):
+//   GET  /v1/wallet        — balance + last 90 days of ledger entries
+//   POST /v1/wallet/cashout — Paystack transfer (mock in dev) with
+//                            ₦1,000 min, ₦50K/day cap, first-time BVN gate
+app.use("/v1/wallet", walletRouter);
 
 // GET /v1/health — liveness probe (PRD §9.1: "health check and auth endpoints")
 app.get("/v1/health", (_req: Request, res: Response) => {

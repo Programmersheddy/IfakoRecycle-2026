@@ -14,13 +14,13 @@ export class AppError extends Error {
   }
 }
 
-type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
+type RouteHandler = (req: Request, res: Response, next: NextFunction) => unknown;
 
-/** Wrap async route handlers so rejections reach the error middleware. */
+/** Wrap route handlers so async rejections reach the error middleware. */
 export const asyncHandler =
-  (fn: AsyncHandler) =>
+  (fn: RouteHandler) =>
   (req: Request, res: Response, next: NextFunction): void => {
-    fn(req, res, next).catch(next);
+    Promise.resolve(fn(req, res, next)).catch(next);
   };
 
 /**
@@ -53,6 +53,7 @@ export function flattenZod(error: ZodError): Record<string, string> {
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof AppError) {
     res.status(err.status).json({
+      ok: false,
       error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) }
     });
     return;
@@ -61,6 +62,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   // forward a raw ZodError (e.g. via next(err) after schema.parse).
   if (err instanceof ZodError) {
     res.status(422).json({
+      ok: false,
       error: {
         code: "VALIDATION_ERROR",
         message: "Invalid request payload",
@@ -71,6 +73,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
   if (err instanceof SyntaxError && "body" in (err as { body?: unknown })) {
     res.status(400).json({
+      ok: false,
       error: { code: "INVALID_JSON", message: "Request body is not valid JSON" }
     });
     return;
@@ -78,6 +81,7 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
    
   console.error("[eas-api] unhandled error:", err);
   res.status(500).json({
+    ok: false,
     error: { code: "INTERNAL_ERROR", message: "Something went wrong" }
   });
 }

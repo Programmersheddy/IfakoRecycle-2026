@@ -19,6 +19,14 @@ const envSchema = z.object({
   /** Android SMS Retriever app hash — appended to OTP SMS so the app can
    *  auto-read the code (optional; generate with Google's AppHash tool). */
   SMS_RETRIEVER_HASH: z.string().default(""),
+
+  // Paystack (PRD §5.4 — cashouts). Empty secret key → mock mode so local dev
+  // never hits the network; set sk_test_… for sandbox transfers.
+  PAYSTACK_SECRET_KEY: z.string().default(""),
+  PAYSTACK_MOCK: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true"),
   /** Dev convenience: log OTP codes to console instead of sending SMS. */
   OTP_DEBUG_LOG: z
     .string()

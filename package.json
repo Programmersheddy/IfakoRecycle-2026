@@ -15,7 +15,11 @@
     "lint": "pnpm -r lint",
     "db:generate": "pnpm --filter @eas/api db:generate",
     "db:migrate": "pnpm --filter @eas/api db:migrate",
+    "db:seed": "pnpm --filter @eas/api db:seed",
     "db:studio": "pnpm --filter @eas/api db:studio"
+  },
+  "prisma": {
+    "seed": "pnpm --filter @eas/api db:seed"
   },
   "devDependencies": {
     "prisma": "6.19.3",

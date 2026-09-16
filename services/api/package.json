@@ -4,6 +4,9 @@
   "private": true,
   "description": "EAS Express API (Node.js + TypeScript + Prisma) per PRD §7.4 services/api.",
   "main": "dist/index.js",
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -12,6 +15,7 @@
     "lint": "eslint .",
     "db:generate": "prisma generate --schema=../../prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema=../../prisma/schema.prisma",
+    "db:seed": "tsx prisma/seed.ts",
     "db:deploy": "prisma migrate deploy --schema=../../prisma/schema.prisma",
     "db:studio": "prisma studio --schema=../../prisma/schema.prisma"
   },

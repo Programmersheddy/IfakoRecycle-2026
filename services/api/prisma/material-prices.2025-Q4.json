@@ -1,0 +1,77 @@
+{
+  "quarter": "2025-Q4",
+  "currency": "NGN",
+  "note": "All rates are integer KOBO (1 NGN = 100 kobo) per PRD §5.1 — display via formatNaira() from @eas/types, never floats. netRateKoboPerKg = grossRateKoboPerKg less the platform fee percent. E-waste is priced per item, negotiated at drop-off.",
+  "materials": [
+    {
+      "code": "PET_CLEAR",
+      "name": "PET bottles (clear, baled)",
+      "category": "PLASTIC",
+      "grossRateKoboPerKg": 12000,
+      "feePercent": 8,
+      "netRateKoboPerKg": 11040,
+      "description": "Clear PET water and soda bottles, caps removed, baled or loose.",
+      "acceptedByDefault": true
+    },
+    {
+      "code": "ALU_CANS",
+      "name": "Aluminum cans",
+      "category": "METAL",
+      "grossRateKoboPerKg": 65000,
+      "feePercent": 8,
+      "netRateKoboPerKg": 59800,
+      "description": "Aluminum drink cans (Coca-Cola, Pepsi, malt drinks). Crushed preferred.",
+      "acceptedByDefault": true
+    },
+    {
+      "code": "HDPE",
+      "name": "HDPE (milk jugs, shampoo)",
+      "category": "PLASTIC",
+      "grossRateKoboPerKg": 18000,
+      "feePercent": 8,
+      "netRateKoboPerKg": 16560,
+      "description": "High-density polyethylene: milk jugs, shampoo bottles, detergent containers.",
+      "acceptedByDefault": true
+    },
+    {
+      "code": "NYLON_SACHET",
+      "name": "Nylon / sachet water bags",
+      "category": "PLASTIC",
+      "grossRateKoboPerKg": 4000,
+      "feePercent": 8,
+      "netRateKoboPerKg": 3680,
+      "description": "Pure water sachets, shopping nylons. Must be clean and dry.",
+      "acceptedByDefault": true
+    },
+    {
+      "code": "PAPER_CARTON",
+      "name": "Clean paper / cartons",
+      "category": "PAPER",
+      "grossRateKoboPerKg": 6000,
+      "feePercent": 8,
+      "netRateKoboPerKg": 5520,
+      "description": "Cardboard cartons, newspapers, office paper. No grease, no water damage.",
+      "acceptedByDefault": true
+    },
+    {
+      "code": "PLASTIC_MIXED",
+      "name": "Mixed plastics (low grade)",
+      "category": "PLASTIC",
+      "grossRateKoboPerKg": 3000,
+      "feePercent": 8,
+      "netRateKoboPerKg": 2760,
+      "description": "Mixed low-grade plastics: toys, broken buckets, PVC scraps.",
+      "acceptedByDefault": true
+    },
+    {
+      "code": "E_WASTE",
+      "name": "E-waste (per item, manual)",
+      "category": "E_WASTE",
+      "grossRateKoboPerKg": 0,
+      "feePercent": 10,
+      "netRateKoboPerKg": 0,
+      "description": "Scrap phones, chargers, small appliances. Price negotiated per item at drop-off.",
+      "acceptedByDefault": false
+    }
+  ]
+}
